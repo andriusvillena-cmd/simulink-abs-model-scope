@@ -197,6 +197,191 @@ number cannot be slow and smooth for the first and fast and fine for the second.
 That is why a realistic emergency-braking application cannot be configured here.
 There is nowhere to put it.
 
+### 10. One ramp has to serve three surfaces
+
+Findings 6 and 8 swept the ramp on dry alone. Running the same sweep on all
+three surfaces, one common grid and one fixed pressure ceiling of 6000, gives a
+map instead of a single answer.
+
+![ramp sweep](ramp_sweep.png)
+
+Each surface has its own best ramp, and they do not coincide:
+
+| surface | best ramp | distance | ABS engages |
+|---|---|---|---|
+| dry | 2000 | 42.4 m | 1400 ms |
+| wet | 800 | 74.6 m | 2000 ms |
+| mu-split | 800 | 69.8 m | 2120 ms |
+
+One fixed value has to cost metres somewhere. Here is what each choice costs
+against the best stop on each surface:
+
+| ramp | dry | wet | mu-split | worst case |
+|---|---|---|---|---|
+| 800 | +9.9 | 0 | 0 | 9.9 m |
+| 1400 | +1.5 | +1.2 | +0.3 | **1.5 m** |
+| 2000 | 0 | +2.0 | +1.5 | 2.0 m |
+| 3000 | +0.2 | +3.4 | +3.0 | 3.4 m |
+| 4500 | +0.9 | +6.2 | +4.9 | 6.2 m |
+| 6500 | +2.0 | +9.0 | +8.4 | 9.0 m |
+| 9000 | +3.8 | +13.9 | +11.3 | 13.9 m |
+
+On distance alone the answer is 1400, which never loses more than a metre and a
+half. It is also the slowest to react: at 1400 the ABS does not start modulating
+until 1.96 s on dry, and nothing about that is an emergency stop.
+
+Ramp 4500 is used from here on. The ABS engages between 0.44 and 0.67 s on all
+three surfaces, and the bill is 0.9 m on dry, 4.9 on mu-split, 6.2 on wet. Two
+criteria, and they do not have the same winner. Saying which one was chosen, and
+what it cost, is the whole job.
+
+The dip exists because two costs pull against each other. A slow ramp leaves a
+large part of the stop under-braked: on mu-split at ramp 500 the ABS does not
+engage until 3.28 s of a 5.2 s stop. A fast ramp makes the loop swing wider, and
+the tyre spends more of its time away from the peak of the friction curve.
+
+Both sides are measured rather than assumed. Engagement time falls monotonically
+with ramp on all three surfaces, and the spread of slip during ABS operation
+rises monotonically on all three, across all 21 runs.
+
+### 11. Mean slip says nothing about how well the car stops
+
+The obvious metric was the first one to fail.
+
+Mean slip while the ABS is working came out between 0.206 and 0.227 in 21 runs
+covering a 13x range of ramp and three surfaces. Stopping distance across those
+same runs varied by 12 %.
+
+| | range over the same 21 runs |
+|---|---|
+| mean slip while ABS active | 0.206 to 0.227 |
+| stopping distance | 42.4 m to 88.5 m |
+
+Change the setpoint to 0.16 and the column moves with it, to 0.157, 0.159 and
+0.159 on the three surfaces. That is the entire content of the number: it
+reports the setpoint back to you, just as happily in the worst run as in the
+best. Audit this model through that column and everything looks fine while six
+metres go missing.
+
+Two earlier candidates were no better:
+
+- Mean slip over the whole run mostly measures how long the pressure build-up
+  took. A slow ramp spends a long stretch at low slip before the ABS ever acts,
+  which drags the average down for reasons that have nothing to do with braking.
+- Peak slip is one sample. On dry it fell between two runs whose distance rose,
+  which is enough to disqualify it.
+
+What survives is the spread of slip once the ABS is active. It uses every sample
+in the window, it rises monotonically with ramp in every run, and it tracks the
+loss in braking efficiency.
+
+### 12. The friction peak is also the stability boundary
+
+The friction table shipped with the example peaks at slip = 0.20. The
+controller's setpoint is also 0.20. The two were set to match, which makes the
+model useless for deriving a setpoint from first principles: the answer is built
+in.
+
+It is also not a realistic tyre. Michelin gives 5 to 15 % for a car tyre,
+typically around 10 %, and 2 to 3 % for a racing tyre with a stiff tread. This
+one peaks at 20 %.
+
+The setpoint is nevertheless wrong, for a reason that has nothing to do with
+where the peak sits.
+
+![slip target sweep](slip_target.png)
+
+The friction curve is not symmetric about its peak. Read as a share of the
+maximum: 0.10 gives 80 %, 0.15 gives 97 %, 0.20 gives 100 %, 0.25 gives 98 %,
+0.30 gives 96 %. Steep on the left, nearly flat on the right.
+
+That suggested moving the setpoint **up**, so the low half of the oscillation
+would stop falling down the steep side. Every run came back worse:
+
+| setpoint | distance | spread of slip | peak slip |
+|---|---|---|---|
+| 0.20 | 74.7 m | 0.098 | 0.397 |
+| 0.22 | 76.1 m | 0.122 | 0.442 |
+| 0.25 | 80.6 m | 0.181 | 0.610 |
+| 0.28 | 85.5 m | 0.249 | 0.923 |
+| 0.32 | 91.7 m | 0.302 | 0.976 |
+
+The prediction treated the oscillation as something arriving from outside, with
+a width of its own. The loop generates it, and that width triples across the
+table. By 0.28 the peak slip is 0.92 and the wheel is all but locked.
+
+The reason is the sign of the slope, which flips at the peak:
+
+- **Left of the peak**, a wheel that slips too much finds more grip, which brakes
+  the runaway. The error corrects itself.
+- **Right of the peak**, more slip means less grip, so the wheel decelerates
+  harder and slips more still. The error feeds itself.
+
+A bang-bang controller with no dead band, sampling every 10 ms, cannot hold a
+setpoint sitting exactly on that boundary. Half of every cycle lands in the
+region that runs away, and the loop does not come back round in time to catch
+it.
+
+So the setpoint should go **down**, onto the self-correcting side. It does:
+
+| setpoint | dry | wet | mu-split |
+|---|---|---|---|
+| 0.20 (shipped) | 43.24 m | 80.84 m | 74.66 m |
+| 0.17 | **41.99 m** | 77.94 m | 72.60 m |
+| **0.16** | 42.18 m | **77.82 m** | 72.05 m |
+| 0.15 | 42.57 m | 78.00 m | **71.87 m** |
+
+Each surface has its own optimum, 0.17, 0.16 and 0.15, but they are close enough
+that 0.16 loses no more than 19 cm anywhere. Unlike the ramp, this compromise is
+free.
+
+| at ramp 4500 | dry | wet | mu-split |
+|---|---|---|---|
+| metres gained | 1.05 | 3.02 | 2.62 |
+| share of available grip used | 92.4 % to 94.7 % | 88.3 % to 91.7 % | 89.2 % to 92.4 % |
+| spread of slip | 0.085 to 0.027 | 0.101 to 0.046 | 0.098 to 0.043 |
+| ABS engages | 670 to 620 ms | 440 to 390 ms | 460 to 410 ms |
+
+There is no trade-off in that last row. A lower setpoint is reached sooner, so
+the ABS starts modulating about 50 ms earlier on every surface while also
+stopping the car shorter. On dry the result beats everything else in this
+repository: 42.18 m with the ABS in at 0.62 s, against 42.35 m that previously
+needed 1.40 s.
+
+Real ABS targets below the peak too, and for the same reason. Michelin's own
+description has the friction coefficient oscillating around its maximum; margin
+on the stable side is what keeps that oscillation from turning into a lock-up.
+
+One caveat, because the agreement here is partly luck. Lowering the target also
+preserves lateral grip, which is most of what an ABS is protecting. This model
+has no lateral dynamics, so it cannot see that benefit and did not reward it for
+it. The earlier idea of raising the target would have been punished far harder in
+a real car than it was here, for exactly that reason — a car braking at 0.25 slip
+stops at a fair rate and cannot steer round anything.
+
+### 13. A measurement that was quietly wrong
+
+`t_abs` was written as the first moment slip reaches 0.2, with the number typed
+straight into the function. While the setpoint was also 0.2 the two coincided,
+and nothing looked wrong.
+
+Move the setpoint and the measurement stops measuring what its name says. With a
+target of 0.15 on dry, slip peaks at 0.178 and never reaches 0.2 during braking
+at all, so the search ran on into the tail after the car has stopped, where slip
+tends to 1 by division, and came back with 2.84 s.
+
+It now reads the setpoint out of the model:
+
+```matlab
+r.t_abs = firstCrossing(slp, slipTarget(model));
+```
+
+The failure mode is worth more than the fix. The function went on returning a
+plausible-looking number in seconds long after it had stopped meaning anything,
+and it was only caught because one run put an absurd value next to values that
+were fine. A constant copied into a measurement is a measurement that will lie
+the first time the thing it was copied from changes.
+
 ---
 
 ## Method notes
@@ -211,6 +396,9 @@ There is nowhere to put it.
 - The same estimator and the same window go on both sides. Fitting a slope on
   one and averaging over total time on the other would flatter whichever you
   chose.
+- ABS engagement is the first instant slip reaches the controller's setpoint, and
+  the setpoint is read out of the model rather than written into the measurement.
+  See finding 13 for what the hard-coded version did.
 - Times below the sampling interval are not reported as numbers. The reference
   run reaches full deceleration inside one 10 ms sample, which is the resolution
   of the measurement, not a measured 0 ms.
@@ -229,6 +417,11 @@ There is nowhere to put it.
 - The Hydraulic Lag value is unjustified, as said above. So is the generator's
   instantaneous deceleration step. Neither transient is anchored to a
   measurement, so the difference between them is not a finding.
+- The calibration in findings 10 and 12 is a calibration of this model, not advice
+  about a car. The friction table peaks at 20 % slip where a real tyre peaks at 5
+  to 15 %, there is no lateral axis, no load transfer and no driver. What
+  transfers is the method: sweep one parameter at a time, keep the rest fixed,
+  state which criterion won and what the other one cost.
 - What would turn this into a validation: one real braking run, logged off the
   vehicle bus.
 
@@ -241,6 +434,8 @@ There is nowhere to put it.
 | `absbrake_surface.m` | configures and runs the model for one surface (`dry`, `wet`, `splitmu`, `ice`), sets the load term to `m*g`, fixes the pressure ramp, and measures deceleration, distance and ABS engagement |
 | `compare_splitmu.m` | runs the model on mu-split, loads the reference run, aligns both on brake onset, and produces the figure |
 | `sweep_ramp.m` | ramp sweep on one surface, with the pressure ceiling as an input. Puts the ceiling back on the way out, including when a run fails |
+| `sweep_target.m` | setpoint sweep on one surface at a fixed ramp. Locates the setpoint block by type and name fragment, because its name contains real newline characters, and restores the original value on the way out |
+| `figures/` | the Python that draws `ramp_sweep.png` and `slip_target.png` from the measured tables |
 | `run01_splitmu.csv` | synthetic reference run, 100 Hz, 12 s, 11 channels. **Not in this repository** |
 
 ## Reproducing
@@ -267,10 +462,22 @@ will not work on dry at all:
 T = sweep_ramp("dry", [1400 3000 5000 8000 11000 15000], 6000)
 ```
 
+The setpoint sweep behind finding 12 runs at a fixed ramp:
+
+```matlab
+T = sweep_target("splitmu", [0.12 0.14 0.16 0.18 0.20 0.22 0.25], 4500, 6000)
+```
+
+The calibration this repository settles on is ramp 4500, ceiling 6000, setpoint
+0.16. None of the three is the best value for any single surface; each is the
+one whose cost across all three is stated above.
+
 Two things that will bite you. A bare `clear` wipes the model's parameters
 (`m`, `g`, `mu`, `v0`, `ctrl`), which live in the base workspace, and leaves the
 model unusable until you close it with `bdclose all` and reopen it by name. For
-the same reason, never name a variable `m`: that is the vehicle mass.
+the same reason, never name a variable `m`: that is the vehicle mass. That includes
+loop counters. `for m = ["a" "b"]` costs you the mass, and the next run fails
+inside a Gain block that has nothing to do with the loop.
 
 `compare_splitmu` also needs `run01_splitmu.csv`, which is not published. The
 figure it produces is committed as `model_vs_reference_splitmu.png` so the

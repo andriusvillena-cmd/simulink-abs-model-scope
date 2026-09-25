@@ -91,7 +91,7 @@ function r = absbrake_surface(surface, rampGain)
     r.decel      = -p(1);
     r.decel_g    = r.decel / 9.81;
     r.distance   = v0^2 / (2 * r.decel);
-    r.t_abs      = firstCrossing(slp, 0.2);
+    r.t_abs      = firstCrossing(slp, slipTarget(model));
     r.slip_mean  = mean(slp.Data(slp.Time < 0.5 * Sd.Time(end)));
     r.v0         = v0;
     r.t          = Sd.Time;      % s
@@ -118,6 +118,24 @@ function path = findBlock(model, type, name)
         error("No block of type %s found in %s.", type, model);
     end
     path = b{1};
+end
+
+
+function target = slipTarget(model)
+% The slip value the controller is aiming for, read from the model.
+%
+% This used to be hard-coded as 0.2, which was silently wrong the moment the
+% target was changed: t_abs then reported when slip happened to touch 0.2,
+% which is the crest of the oscillation rather than the first ABS action, and
+% for targets low enough that slip never reaches 0.2 it returned the post-stop
+% artefact instead, several seconds late.
+    blk = find_system(model, "LookUnderMasks", "all", "FollowLinks", "on", ...
+                      "BlockType", "Constant");
+    blk = blk(contains(blk, "Desired"));
+    if isempty(blk)
+        error("Cannot find the desired-slip constant in %s.", model);
+    end
+    target = str2double(get_param(blk{1}, "Value"));
 end
 
 
